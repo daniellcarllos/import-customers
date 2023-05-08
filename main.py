@@ -3,7 +3,7 @@ import import_customers
 
 from argparse import ArgumentParser
 
-parser = ArgumentParser()
+parser = ArgumentParser(description=" Importa e atualiza a base de clientes do projeto eco aparti de um arquivo TXT/CSV, é necessiro realizar a configuração para normalização")
 
 parser.add_argument(
     '-d', '--delimiter',
