@@ -1,16 +1,21 @@
+import mysql.connector  # type: ignore
+import numpy as np  # type: ignore
 import pandas as pd
-import numpy as np
-import mysql.connector
-from mysql.connector import errorcode
+from mysql.connector import errorcode  # type: ignore
 from tqdm import tqdm
+
 import config
 
-def importar_dados(path, delimiter):
+
+def import_data(path: str, delimiter: str, debug: bool):
+
+    config_db = config.mod_debug(debug)
+
     tqdm.pandas()
 
-    #Construct connection string
+    # Construct connection string
     try:
-        conn = mysql.connector.connect(**config.db_config)
+        conn = mysql.connector.connect(**config_db)
         print("Connection established")
     except mysql.connector.Error as err:
         if err.errno == errorcode.ER_ACCESS_DENIED_ERROR:
@@ -22,15 +27,14 @@ def importar_dados(path, delimiter):
     else:
         cursor = conn.cursor()
 
+    # Criando o Dataframe aparti do arquivo (.txt,.csv)
+    df = pd.read_csv(path, delimiter=delimiter, converters={
+                     config.CPF: str}, encoding='ISO-8859-1')
 
-    #Criando o Dataframe aparti do arquivo (.txt,.csv)
-    df = pd.read_csv(path, delimiter=delimiter, converters={config.CPF: str}, encoding='ISO-8859-1')
+    # Renomeando colunas para normalizar a base
 
-
-    #Renomeando colunas para normalizar a base
-
-    df.rename(columns={config.UC: 'UC'} , inplace=True)
-    df.rename(columns={config.NUM_CLI: 'CC'} , inplace=True)
+    df.rename(columns={config.UC: 'UC'}, inplace=True)
+    df.rename(columns={config.NUM_CLI: 'CC'}, inplace=True)
     df.rename(columns={config.CPF: 'CPF'}, inplace=True)
     df.rename(columns={config.TITULAR: 'TITULAR'}, inplace=True)
     df.rename(columns={config.SITUACAO: 'STATUS_CLIENTE'}, inplace=True)
@@ -38,13 +42,13 @@ def importar_dados(path, delimiter):
     df.rename(columns={config.BAIRRO: 'BAIRRO'}, inplace=True)
     df.rename(columns={config.MUNICIPIO: 'MUNICIPIO'}, inplace=True)
 
-    #Apagando valores vazios
+    # Apagando valores vazios
     df = df.fillna(value='')
-    df = df.dropna(subset=['UC','CPF'], axis=0)
+    df = df.dropna(subset=['UC', 'CPF'], axis=0)
 
-    #Alterando UC para inteiro os dados
+    # Alterando UC para inteiro os dados
     df['UC'] = df['UC'].astype(int)
-    #Alterando CPF para str os dados
+    # Alterando CPF para str os dados
     df['CPF'] = df['CPF'].astype(str)
 
     uc = np.unique(df['UC'], return_counts=True)
@@ -55,32 +59,37 @@ def importar_dados(path, delimiter):
             count_ += 1
     print('Qauntidade de UC duplicadas: ', count_)
 
-    #Apagando registro de UC duplicados
+    # Apagando registro de UC duplicados
     df = df.drop_duplicates(subset=['UC'])
 
-    #Inserindo as colunas no data frame
+    # Inserindo as colunas no data frame
     df.loc[:, "id_posto_coleta"] = 0
 
+    # Inserindo os dados no banco e criando as query
+    # UC,CLIENTE,CPF,ENDERECO,BAIRRO,MUNICIPIO
 
+    for index, row in tqdm(
+            df.iterrows(),
+            desc='Importação',
+            total=df.shape[0]):
 
-    #Inserindo os dados no banco e criando as query
-    #UC,CLIENTE,CPF,ENDERECO,BAIRRO,MUNICIPIO
+        query = f"""INSERT INTO {config.nome_tabela} (uc, titular, cpf,\
+                            logradouro, bairro, municipio, id_posto_coleta)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                            ON DUPLICATE KEY UPDATE cpf = VALUES(cpf),\
+                            logradouro = VALUES(logradouro),\
+                            bairro = VALUES(bairro),\
+                            municipio= VALUES(municipio), \
+                            titular= VALUES(TITULAR)"""
+        values = (row.UC, row.TITULAR, row.CPF, row.ENDERECO,
+                  row.BAIRRO, row.MUNICIPIO, row.id_posto_coleta)
 
-    for index, row in tqdm(df.iterrows(), desc='Importação', total=df.shape[0]):
+        cursor.execute(query, values)  # type: ignore
+        conn.commit()  # type: ignore
 
-        query = f"""INSERT INTO {config.nome_tabela} (uc, titular, cpf, logradouro, bairro, municipio, id_posto_coleta)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s)
-                           ON DUPLICATE KEY UPDATE cpf = VALUES(cpf), logradouro = VALUES(logradouro), bairro = VALUES(bairro),\
-                            municipio= VALUES(municipio), titular= VALUES(TITULAR)"""
-        values = (row.UC, row.TITULAR, row.CPF, row.ENDERECO, row.BAIRRO, row.MUNICIPIO, row.id_posto_coleta)
+    cursor.close()  # type: ignore
+    conn.close()  # type: ignore
 
-
-        cursor.execute(query, values)
-        conn.commit()
-
-    cursor.close()
-    conn.close()
 
 if __name__ == "__main__":
-    print(config.db_config)
-
+    ...
